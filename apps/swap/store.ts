@@ -1,7 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit'
+import { multicall } from 'lib/state/multicall'
 import { tokenLists } from 'lib/state/token-lists'
-
-import { multicall } from './lib/state/multicall'
 
 export const store = configureStore({
   reducer: {

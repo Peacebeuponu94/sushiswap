@@ -35,72 +35,6 @@ interface Config {
     title: string
   }
 }
-function getComplexPathParams(trade: TradeV2<Currency, Currency, TradeType.EXACT_INPUT>) {
-  const initialPathCount = trade.route.legs.filter(
-    (leg) => leg.tokenFrom.address === trade.inputAmount.currency.wrapped.address
-  ).length
-  return trade.route.legs.reduce<
-    [
-      {
-        tokenIn: string
-        pool: string
-        native: boolean
-        amount: BigNumberish
-        data: string
-      }[],
-      {
-        tokenIn: string
-        pool: string
-        balancePercentage: BigNumberish
-        data: string
-      }[]
-    ]
-  >(
-    ([initialPath, percentagePath], leg, i) => {
-      const isInitialPath = leg.tokenFrom.address === trade.inputAmount.currency.wrapped.address
-      if (isInitialPath) {
-        return [
-          [
-            ...initialPath,
-            {
-              tokenIn: leg.tokenFrom.address,
-              pool: leg.poolAddress,
-              amount:
-                initialPathCount > 1 && i === initialPathCount - 1
-                  ? getBigNumber(trade.route.amountIn).sub(
-                      initialPath.reduce((previousValue, currentValue) => previousValue.add(currentValue.amount), Zero)
-                    )
-                  : getBigNumber(trade.route.amountIn * leg.absolutePortion),
-              native: false,
-              data: defaultAbiCoder.encode(
-                ['address', 'address', 'bool'],
-                [leg.tokenFrom.address, SUSHI_X_SWAP_ADDRESS[trade.inputAmount.currency.chainId], false]
-              ),
-            },
-          ],
-          percentagePath,
-        ]
-      } else {
-        return [
-          initialPath,
-          [
-            ...percentagePath,
-            {
-              tokenIn: leg.tokenFrom.address,
-              pool: leg.poolAddress,
-              balancePercentage: getBigNumber(leg.swapPortion * 10 ** 8),
-              data: defaultAbiCoder.encode(
-                ['address', 'address', 'bool'],
-                [leg.tokenFrom.address, SUSHI_X_SWAP_ADDRESS[trade.inputAmount.currency.chainId], false]
-              ),
-            },
-          ],
-        ]
-      }
-    },
-    [[], []]
-  )
-}
 
 export function getBigNumber(value: number): BigNumber {
   const v = Math.abs(value)
@@ -118,7 +52,7 @@ function _Swap({ config = defaultConfig }: { config?: Config }) {
   const { data: account } = useAccount()
   const { data: signer } = useSigner()
 
-  const [srcChainId, setSrcChainId] = useState(ChainId.ARBITRUM)
+  const [srcChainId, setSrcChainId] = useState(ChainId.OPTIMISM)
   const [dstChainId, setDstChainId] = useState(ChainId.OPTIMISM)
 
   const crossChain = srcChainId !== dstChainId
@@ -200,8 +134,8 @@ function _Swap({ config = defaultConfig }: { config?: Config }) {
 
   const dstMinimumAmountOut = crossChain ? dstTrade?.minimumAmountOut(SWAP_DEFAULT_SLIPPAGE) : srcMinimumAmountOut
 
-  console.log('SRC AMOUNT IN', srcAmount?.toFixed())
-  console.log('SRC MINIMUM AMOUNT OUT', srcMinimumAmountOut?.toFixed())
+  // console.log('SRC AMOUNT IN', srcAmount?.toFixed())
+  // console.log('SRC MINIMUM AMOUNT OUT', srcMinimumAmountOut?.toFixed())
   // console.log('SG FEE', sgFee?.toFixed())
   // console.log('SRC MINIMUM AMOUNT OUT MINUS SG FEE', srcAmountOutMinusFee?.toFixed())
   // console.log('DST AMOUNT IN', dstAmountIn?.toFixed())
@@ -220,8 +154,6 @@ function _Swap({ config = defaultConfig }: { config?: Config }) {
     account?.address,
     SUSHI_X_SWAP_ADDRESS[srcChainId]
   )
-
-  console.log({ crossChain, srcMinimumAmountOut })
 
   const execute = useCallback(() => {
     console.log(
@@ -335,13 +267,13 @@ function _Swap({ config = defaultConfig }: { config?: Config }) {
           srcAmount.toShare(srcBentoBoxRebase).quotient.toString(),
           srcMinimumAmountOut.toShare(srcBentoBoxRebase).quotient.toString(),
           srcTrade.route.path.map((token) => token.address),
-          crossChain || dstToken.isNative || !dstUseBentoBox ? SUSHI_X_SWAP_ADDRESS[srcChainId] : account.address
+          crossChain || dstToken.isNative || dstUseBentoBox ? SUSHI_X_SWAP_ADDRESS[srcChainId] : account.address
         )
 
         if (!crossChain && dstToken.isNative && !dstUseBentoBox) {
           cooker.unwrapAndTransfer(dstToken)
         } else if (!crossChain && dstUseBentoBox) {
-          cooker.srcDepositToBentoBox(dstToken)
+          cooker.dstDepositToBentoBox(dstToken)
         }
       }
 
@@ -368,24 +300,28 @@ function _Swap({ config = defaultConfig }: { config?: Config }) {
           cooker.tridentExactInput(
             srcToken,
             srcAmount.toShare(srcBentoBoxRebase).quotient.toString(),
-            srcMinimumAmountOut.quotient.toString(),
+            srcMinimumAmountOut.toShare(srcBentoBoxRebase).quotient.toString(),
             srcTrade.route.legs.map((leg, i) => {
               const isLastLeg = i === srcTrade.route.legs.length - 1
-              const recipentAddress = isLastLeg
-                ? crossChain
-                  ? SUSHI_X_SWAP_ADDRESS[srcChainId]
-                  : account.address
-                : leg.poolAddress
-              console.log(recipentAddress)
+              const recipentAddress = !isLastLeg
+                ? srcTrade.route.legs[i + 1].poolAddress
+                : crossChain || (dstToken.isNative && !dstUseBentoBox) || dstUseBentoBox
+                ? SUSHI_X_SWAP_ADDRESS[srcChainId]
+                : account.address
               return {
                 pool: leg.poolAddress,
                 data: defaultAbiCoder.encode(
                   ['address', 'address', 'bool'],
-                  [leg.tokenFrom.address, recipentAddress, crossChain ? isLastLeg : isLastLeg && dstUseBentoBox]
+                  [leg.tokenFrom.address, recipentAddress, crossChain ? isLastLeg : isLastLeg && !dstUseBentoBox]
                 ),
               }
             })
           )
+          if (!crossChain && dstToken.isNative && !dstUseBentoBox) {
+            cooker.unwrapAndTransfer(dstToken)
+          } else if (!crossChain && dstUseBentoBox) {
+            cooker.dstDepositToBentoBox(dstToken)
+          }
         } else if (new Set(inputTokens).size !== inputTokens.length) {
           console.log('cook trident complex')
           cooker.srcDepositToBentoBox(srcToken, SUSHI_X_SWAP_ADDRESS[srcChainId], srcAmount.quotient.toString())
@@ -524,7 +460,7 @@ function _Swap({ config = defaultConfig }: { config?: Config }) {
                   ? dstToken.isNative && !dstUseBentoBox
                     ? SUSHI_X_SWAP_ADDRESS[dstChainId]
                     : account.address
-                  : leg.poolAddress
+                  : dstTrade.route.legs[i + 1].poolAddress
                 return {
                   pool: leg.poolAddress,
                   data: defaultAbiCoder.encode(
