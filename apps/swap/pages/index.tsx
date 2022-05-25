@@ -69,11 +69,11 @@ function _Swap({ config = defaultConfig }: { config?: Config }) {
 
   // 0xfea7a6a0b346362bf88a9e4a88416b77a57d6c2a
 
-  const [srcToken, setSrcToken] = useState<Currency>(Native.onChain(srcChainId))
-  // const [dstToken, setDstToken] = useState<Currency>(Native.onChain(dstChainId))
+  // const [srcToken, setSrcToken] = useState<Currency>(Native.onChain(srcChainId))
+  const [dstToken, setDstToken] = useState<Currency>(Native.onChain(dstChainId))
 
-  // const [srcToken, setSrcToken] = useState<Currency>(USDT[srcChainId])
-  const [dstToken, setDstToken] = useState<Currency>(USDT[dstChainId])
+  const [srcToken, setSrcToken] = useState<Currency>(USDT[srcChainId])
+  // const [dstToken, setDstToken] = useState<Currency>(USDT[dstChainId])
 
   // const [srcBridgeToken, setSrcBridgeToken] = useState<Currency>(USDC[srcChainId])
   // const [dstBridgeToken, setDstBridgeToken] = useState<Currency>(USDT[dstChainId])
@@ -305,7 +305,7 @@ function _Swap({ config = defaultConfig }: { config?: Config }) {
               const isLastLeg = i === srcTrade.route.legs.length - 1
               const recipentAddress = !isLastLeg
                 ? srcTrade.route.legs[i + 1].poolAddress
-                : crossChain || (dstToken.isNative && !dstUseBentoBox) || dstUseBentoBox
+                : crossChain || (dstToken.isNative && !dstUseBentoBox)
                 ? SUSHI_X_SWAP_ADDRESS[srcChainId]
                 : account.address
               return {
@@ -319,8 +319,6 @@ function _Swap({ config = defaultConfig }: { config?: Config }) {
           )
           if (!crossChain && dstToken.isNative && !dstUseBentoBox) {
             cooker.unwrapAndTransfer(dstToken)
-          } else if (!crossChain && dstUseBentoBox) {
-            cooker.dstDepositToBentoBox(dstToken)
           }
         } else if (new Set(inputTokens).size !== inputTokens.length) {
           console.log('cook trident complex')
